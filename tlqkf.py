@@ -1,71 +1,111 @@
 import tensorflow as tf
 from tensorflow import keras
 from sklearn.preprocessing import OneHotEncoder, LabelEncoder
+from tensorflow.keras.layers import Input, Dense, Embedding, Dot, Reshape
+from tensorflow.keras.models import Model, Sequential
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.backend import print_tensor
 import numpy as np
+import pandas as pd
+import re
+import sys
 
-corpus='you say goodbye and i say hello .'
-# contexts, target = conver_one_hot(corpus, 1)
-window_size = 1
+pd_title = pd.read_excel('./excel_sample/마버리타이틀.xlsx')
+raw_title_list = pd_title.bd_title_ko.tolist()
 
+def refined_special_symbol(str_list):
+    # 특수문자 제끼기
+    return [re.sub('[-=+,#/\?:^$.@*\"※~&%ㆍ!』\\‘|\(\)\[\]\<\>`\'…》]', '', obj) for obj in str_list]
+
+
+title_list = refined_special_symbol(raw_title_list)
+
+corpus = title_list[0]
+
+# 전처리 해야함
 le = LabelEncoder()
 enc = OneHotEncoder()
 
-
 corpus_list = corpus.split()
-corpus_list
-# tf.one_hot(len(corpus_list), len(corpus_list))
-# tf.Tran
 
-le_fit = le.fit_transform(corpus_list)
-le_fit
-le_list = le_fit.reshape(len(corpus_list), -1) # -1 뒤에 알맞는 차원을 넣어줌
+le_list=le.fit_transform(corpus_list).reshape(len(corpus_list), -1)
+
+le.inverse_transform(le_list)
 le_list
-le_list.shape
+
 enc.fit(le_list)
-enc
-
 corpus_oh = enc.transform(le_list).toarray().tolist()
-corpus_oh
-
 contexts = []
 target = []
-for i, co in enumerate(corpus_oh):
-  if (i < window_size) or (i >= (len(corpus_oh) - window_size)):
-    continue
 
-  contexts.append([corpus_oh[i - window_size], corpus_oh[i + window_size]])
-  print(contexts)
-  target.append(co)
+window_size = 1
+for i, co in enumerate(corpus_oh):
+    if len(corpus_oh) - 1 == i:
+        break
+    if i < window_size:
+        continue
+    contexts.append(co)
+    target.append([corpus_oh[i-1], corpus_oh[i+1]])
 
 contexts = np.array(contexts)
-contexts # 학습 데이터
 target = np.array(target)
-target # 목표데이터
+#모델 만들기
 
-contexts.shape
+target=tf.transpose(a=target, perm=[1,0,2])
 
-######################################################################
-input_shape = (7,7)
+input_shape = (contexts.shape[-1])
+dimensoin = 3
 
-from tensorflow.keras.layers import Input, Dense, Embedding, Dot, Reshape
-from tensorflow.keras.models import Model
+input = Input(shape=input_shape)  # input 2개중에 1개가 행렬 1x7로 이루어져있기 때문에 7이 들어감
+x = Dense(3, name='pre')(input)   # matmul 부분 Dense는 처음 weight rand까지 다
 
+# dot = tf.add(x1, x2) * 0.5  # 책에있는 공식이다
+dot = x
 
-inputs1 = Input(shape=input_shape[0])
-inputs1
-inputs2 = Input(shape=input_shape[1])
-inputs2
+outs1 = Dense(input_shape, activation='softmax', name='output1')(dot)  # Weight x dot을 한후 소프트 맥스까지 한다.
+outs2 = Dense(input_shape, activation='softmax', name='output2')(dot)
 
-x1 = Dense(3, name='pre')(inputs1)  # matmul 부분
-x2 = Dense(3, name='post')(inputs2)
+skipgram = Model(inputs=input, outputs=[outs1, outs2])
 
-dot = tf.add(x1, x2) * 0.5
-
-out = Dense(7, activation='softmax', name='output')(dot)
-
-skipgram = Model(inputs=[inputs1, inputs2], outputs=out)
+skipgram.summary()
 
 
+skipgram.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy']) #adam = 통용적으로쓴다 metrics categorical_crossentropy 다수 binary_엔트로피는 2개할때
 
-CBOW = Word2Vec_classification(input_shape)
-CBOW.summary()
+skipgram.fit(
+    contexts, #입력
+    [target[0],target[1]], # 정답
+    batch_size=3,# input 3덩어리 씩 입력하여 진행 하겠다.
+    epochs=1000 # 몇바퀴
+#     verbose=1
+)
+
+np.save('./skipgram_emb.npy', skipgram.get_weights()[0])
+
+w_in = skipgram.get_weights()[0]
+
+np.array(contexts)
+target_pre = skipgram.predict(contexts)
+
+
+target_pre = np.array(target_pre)
+target = np.array(target)
+
+target_pre.argmax(axis=1)
+target.argmax(axis=1)
+
+def get_label(y_target, y_pred):
+    y_true, pred = y_target.argmax(axis=1), y_pred.argmax(axis=1)
+
+    return np.mean(pred == y_true)
+
+le_list
+corpus_list
+corpus_oh
+ee = target_pre.argmax(axis=1)
+get_label(target, target_pre)
+corpus_list
+
+le.inverse_transform(contexts.argmax(axis=1))
+le.inverse_transform(ee[0])
+le.inverse_transform(ee[1])
